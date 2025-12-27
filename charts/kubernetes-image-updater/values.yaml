@@ -1,0 +1,8 @@
+image:
+  repository: eznix86/kubernetes-image-updater
+  tag: latest
+  pullPolicy: IfNotPresent
+
+intervalSeconds: 300
+
+resources: {}

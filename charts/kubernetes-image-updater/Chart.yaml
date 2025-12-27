@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kubernetes-image-updater
+description: Simple Kubernetes-native image updater using Kopf
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

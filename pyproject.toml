@@ -1,0 +1,17 @@
+[project]
+name = "kubernetes-image-updater"
+version = "0.1.0"
+description = "Minimal Kopf-based operator that restarts workloads when image digests change"
+requires-python = ">=3.11"
+dependencies = [
+    "kopf>=1.37.4",
+    "kubernetes>=28.1.0",
+    "requests>=2.31.0",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = true
