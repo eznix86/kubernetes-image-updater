@@ -1,10 +1,18 @@
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
-
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
 WORKDIR /app
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
 COPY pyproject.toml uv.lock ./
-RUN uv pip install --system --frozen --no-cache -r pyproject.toml
+RUN uv sync --frozen --no-install-project
 
-COPY operator.py ./
+COPY controller.py ./
 
-CMD ["kopf", "run", "/app/operator.py"]
+FROM python:3.11-slim
+WORKDIR /app
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+COPY --from=builder /app/.venv ${VIRTUAL_ENV}
+COPY --from=builder /app/controller.py ./controller.py
+
+CMD ["kopf", "run", "/app/controller.py"]

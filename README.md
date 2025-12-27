@@ -1,6 +1,12 @@
 # Kubernetes Image Updater
 
-A minimal Kopf-based operator that restarts annotated Kubernetes workloads when the OCI digest behind their tagged image changes. See `docs/spec.md` for the public specification.
+A lightweight Kubernetes helper that re-rolls annotated workloads whenever the digest behind their current image tag changes. See `docs/spec.md` for the full behavior.
+
+## Use cases
+
+- Homelabs or personal clusters that track `:latest` tags and want automatic rollouts when registries publish new digests.
+- Small teams pinning images manually but needing a digest watcher without wiring a full GitOps stack.
+- **Warning:** This project is *not* hardened for production. There is no HA story, no admission control, and no guarantees around RBAC or audit requirements—run it only in environments where those gaps are acceptable.
 
 ## Development
 
@@ -10,17 +16,28 @@ Dependencies are managed with [uv](https://github.com/astral-sh/uv) for repeatab
 uv venv
 source .venv/bin/activate
 uv sync
-uv run kopf run operator.py
+uv run kopf run controller.py
 ```
 
 ## Helm Chart
 
-Package and deploy the operator via the bundled Helm chart:
+Install the published chart directly from GitHub:
 
 ```bash
-helm install image-updater charts/kubernetes-image-updater \
-  --set image.repository=yourrepo/image-updater \
-  --set image.tag=$(git rev-parse --short HEAD)
+helm repo add eznix86 https://eznix86.github.io/kubernetes-image-updater
+helm repo update
+
+helm install image-updater eznix86/kubernetes-image-updater
 ```
 
-Annotate workloads with `image-updater.eznix86.github.io/enabled: "true"` to opt in.
+### Required annotation
+
+Opt specific workloads in with the GitHub-hosted annotation namespace:
+
+```yaml
+metadata:
+  annotations:
+    image-updater.eznix86.github.io/enabled: "true"
+```
+
+The operator manages only annotated resources; it ignores everything else.

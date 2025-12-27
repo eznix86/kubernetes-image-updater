@@ -1,311 +1,110 @@
-# Kubernetes Image Updater — Specification
+# Kubernetes Image Updater — Information Sheet
 
-**Project:** Kubernetes Image Updater
-**Repository:** [https://github.com/eznix86/kubernetes-image-updater](https://github.com/eznix86/kubernetes-image-updater)
-**Status:** Stable (v1)
-**Scope:** Kubernetes-native image digest–based restarts
-**Non-Goals:** GitOps, version selection, CI/CD orchestration
+**Project:** Kubernetes Image Updater  
+**Repository:** [https://github.com/eznix86/kubernetes-image-updater](https://github.com/eznix86/kubernetes-image-updater)  
+**Status:** Stable (v1)  
+**Purpose:** Restart Kubernetes workloads when the OCI digest behind their current tag changes  
+**Intended Environments:** Homelabs, personal clusters, or any setup where `:latest` or manual tag pinning is acceptable
 
 ---
 
 ## 1. Overview
 
-Kubernetes Image Updater is a lightweight Kubernetes operator that automatically triggers rolling restarts of Kubernetes workloads when the **OCI image digest behind an existing image tag changes**.
+Kubernetes Image Updater watches annotated workloads and periodically compares the OCI digest of their **current** container image to the digest that last triggered a rollout. If the registry answers with a new digest, the operator patches the workload’s pod template with `kubectl.kubernetes.io/restartedAt`, causing Kubernetes to perform a standard rolling restart. No tags are rewritten, no Git state is touched, and no pods are deleted manually.
 
-The operator is inspired by Docker Watchtower but is **fully Kubernetes-native**, relying exclusively on standard Kubernetes rollout semantics.
+Key characteristics:
 
-The operator **does not modify image tags**, **does not compare versions**, and **does not manage Git state**.
-
----
-
-## 2. Core Principles
-
-1. **Digest-based detection**
-   Updates are detected solely by comparing OCI image digests.
-
-2. **Kubernetes-native behavior**
-   Restarts are triggered using the same mechanism as:
-
-   ```bash
-   kubectl rollout restart
-   ```
-
-3. **Opt-in via annotations**
-   Only explicitly annotated workloads are managed.
-
-4. **Controller-driven restarts**
-   Pods are never deleted directly. Kubernetes controllers handle restarts.
-
-5. **Registry-agnostic**
-   Any OCI-compliant registry is supported.
+- Works with existing tags (e.g., `nginx:stable`, `ghcr.io/org/app:prod`).
+- Uses the **first** container in the pod spec for digest checks in v1.
+- Stores the last observed digest on the workload itself to avoid duplicate restarts.
+- Leaves rollout strategy, autoscaling, and disruption budgets entirely to Kubernetes.
 
 ---
 
-## 3. Supported Workloads
+## 2. Supported Workloads
 
-The operator targets **restartable workloads** that expose a Pod template.
+The controller interacts with native controllers that expose a pod template:
 
-### Supported
+| Supported        | Not Supported            |
+| ---------------- | ------------------------ |
+| Deployments      | Standalone Pods          |
+| StatefulSets     | Jobs / CronJobs          |
+| DaemonSets       | Static Pods              |
+| ReplicaSets\*    |                          |
 
-* `Deployment`
-* `StatefulSet`
-* `DaemonSet`
-* `ReplicaSet` (implicit via Deployments)
-
-### Not Supported
-
-* `Pod`
-* `Job`
-* `CronJob`
-* Static Pods
+\*ReplicaSets inherit support through Deployments; they are not watched directly.
 
 ---
 
-## 4. Annotation API (v1)
+## 3. Annotation Reference
 
-### 4.1 Annotation Namespace
+| Annotation Key                                      | Written By  | Meaning |
+| --------------------------------------------------- | ----------- | ------- |
+| `image-updater.eznix86.github.io/enabled`           | User        | Set to `"true"` on a workload to opt in. Absent or other values mean “ignore.” |
+| `image-updater.eznix86.github.io/last-digest`       | Operator    | Stores the digest that most recently triggered a restart. Used for idempotency. |
+| `kubectl.kubernetes.io/restartedAt`                 | Operator    | Standard Kubernetes annotation used to trigger a rollout restart by mutating `spec.template.metadata.annotations`. |
 
-All operator-owned annotations use the following prefix:
-
-```text
-image-updater.eznix86.github.io
-```
-
-This namespace is authoritative and versioned implicitly.
+All operator-managed annotations live under `image-updater.eznix86.github.io/*` and should be treated as internal state.
 
 ---
 
-### 4.2 Enable Annotation (Required)
+## 4. Reconciliation Flow
 
-#### Key
+1. **Discovery** – Kopf timers target Deployments, StatefulSets, and DaemonSets in the `apps/v1` API group. Resources lacking the enable annotation are skipped immediately.
+2. **Image selection** – The first entry in `spec.template.spec.containers` supplies the image reference.
+3. **Digest resolution** – The controller parses the reference, infers a registry when needed (Docker Hub with the `library/` prefix for bare names), and performs an HTTP `GET /v2/<repo>/manifests/<tag>` with `Accept: application/vnd.docker.distribution.manifest.v2+json`. The digest is taken from the `Docker-Content-Digest` header.
+4. **Comparison** – The digest is compared to `image-updater.eznix86.github.io/last-digest` stored on the workload metadata.
+5. **Restart trigger** – When the digest differs, the controller:
+   - Writes the new digest to the workload metadata; and
+   - Patches `spec.template.metadata.annotations` with a fresh ISO-8601 timestamp at `kubectl.kubernetes.io/restartedAt`.
+6. **Rollout** – Kubernetes controllers pick up the template change and roll out according to their own strategy. The operator does nothing else until the next timer tick.
 
-```text
-image-updater.eznix86.github.io/enabled
-```
-
-#### Type
-
-```text
-string (boolean semantics)
-```
-
-#### Valid Values
-
-* `"true"` — workload is managed
-* any other value or absence — workload is ignored
-
-#### Scope
-
-* Applied to the **workload metadata**, not the Pod template
-
-#### Example
-
-```yaml
-metadata:
-  annotations:
-    image-updater.eznix86.github.io/enabled: "true"
-```
+Failures when reaching the registry (timeouts, `401 Unauthorized`, etc.) are logged and the reconciliation exits without mutating the workload. State remains unchanged until the next timer attempt.
 
 ---
 
-### 4.3 Internal State Annotation (Managed by Operator)
+## 5. Image Resolution Details
 
-#### Key
-
-```text
-image-updater.eznix86.github.io/last-digest
-```
-
-#### Purpose
-
-Stores the last observed OCI image digest to ensure idempotency and avoid restart loops.
-
-#### Ownership
-
-* MUST be written and updated only by the operator
-* MUST NOT be set manually by users
+- **Registry inference** – Image names without an explicit registry use `registry-1.docker.io`. Names without a slash are rewritten as `library/<name>` to align with Docker Hub conventions.
+- **Accepted schemes** – Any registry that implements the Docker Registry HTTP API v2 works (Docker Hub, GHCR, Quay, private registries, etc.).
+- **Authentication** – The controller relies on the same credentials available to the node or cluster (e.g., pre-configured `/var/lib/kubelet/config.json`, `imagePullSecrets`, or public registries). No additional auth wiring is performed.
 
 ---
 
-### 4.4 Restart Annotation (Kubernetes Standard)
+## 6. Failure Behavior
 
-#### Key
-
-```text
-kubectl.kubernetes.io/restartedAt
-```
-
-#### Purpose
-
-Triggers a rolling restart by mutating the Pod template.
-
-#### Behavior
-
-* Identical to `kubectl rollout restart`
-* MUST be written to:
-
-  ```yaml
-  spec.template.metadata.annotations
-  ```
-
-#### Ownership
-
-* Shared Kubernetes convention
-* MUST NOT be replaced by a custom annotation
+- Registry errors are surfaced via warning logs and the loop continues on the next interval. There is no retry inside a single tick.
+- Workloads without containers or without an `image` value are ignored for that pass.
+- Only the annotation fields mentioned above are patched; no other metadata or spec fields are touched.
 
 ---
 
-## 5. Functional Behavior
+## 7. Access Requirements
 
-### 5.1 Reconciliation Loop
+To function, the controller needs:
 
-For each enabled workload:
+- **Read** access to Deployments, StatefulSets, and DaemonSets for discovery.
+- **Patch** access on those resources so it can mutate metadata and pod templates.
 
-1. Identify the target container image
-2. Resolve the image reference
-3. Fetch the remote OCI manifest
-4. Extract the image digest
-5. Compare against `last-digest`
-6. If changed:
-
-   * Patch the Pod template with `restartedAt`
-   * Update `last-digest`
+Pods are never deleted directly, and scaling decisions remain with the native controllers.
 
 ---
 
-### 5.2 Restart Semantics
+## 8. Compatibility & Non-Goals
 
-* The operator **MUST NOT**:
+The behavior intentionally mirrors `kubectl rollout restart`, making it compatible with:
 
-  * Delete Pods
-  * Scale workloads
-  * Modify image tags
-  * Modify controller metadata
+- GitOps tools such as Flux or Argo CD (they see standard template annotations).
+- Autoscalers, PodDisruptionBudgets, and other built-in controllers.
 
-* The operator **MUST**:
+Explicitly out of scope:
 
-  * Patch only `spec.template.metadata.annotations`
-  * Allow Kubernetes to perform rolling updates according to workload strategy
-
----
-
-## 6. Image Resolution Rules
-
-### 6.1 OCI Compliance
-
-The operator MUST support any OCI-compliant registry implementing the Docker Registry HTTP API v2.
-
-### 6.2 Image Reference Parsing
-
-Supported formats include:
-
-```text
-nginx:latest
-org/app:stable
-ghcr.io/org/app:1.2.3
-registry.example.com/team/app:prod
-```
-
-### 6.3 Default Registry Resolution
-
-If no registry is specified:
-
-* Registry: `registry-1.docker.io`
-* Repository prefix: `library/` (if required)
-
-This follows Docker-compatible resolution rules.
+- Selecting “latest” images on behalf of the user or performing semantic version comparisons.
+- Managing Git repositories, manifests, or CI/CD pipelines.
+- Acting as a policy or verification layer — it simply observes digests and restarts.
 
 ---
 
-## 7. Registry Authentication (Out of Scope for v1)
+## 9. Summary
 
-Authentication mechanisms are implementation-dependent and MAY include:
-
-* Public registry access
-* Node-level credentials
-* Kubernetes `imagePullSecrets`
-
-The specification does not mandate a specific authentication mechanism.
-
----
-
-## 8. Container Selection
-
-### v1 Rule
-
-* The **first container** in `spec.template.spec.containers` is used.
-
-### Future Extension
-
-Additional annotations MAY allow explicit container selection.
-
----
-
-## 9. Failure Handling
-
-* Registry errors MUST NOT crash the operator
-* Failures MUST be logged
-* No retries are guaranteed within a single reconciliation cycle
-* State MUST remain unchanged on failure
-
----
-
-## 10. Security Considerations
-
-* The operator requires **read access** to workloads
-* The operator requires **patch access** to:
-
-  * Deployments
-  * StatefulSets
-  * DaemonSets
-
-Minimal RBAC MUST be used.
-
----
-
-## 11. Non-Goals (Explicit)
-
-The operator intentionally does **NOT**:
-
-* Perform semantic version comparison
-* Select the “latest” version
-* Scan all registry tags
-* Integrate with Git
-* Replace GitOps tools
-* Act as a CI/CD system
-
----
-
-## 12. Compatibility
-
-The operator is designed to be compatible with:
-
-* `kubectl rollout restart`
-* GitOps tools (Flux, Argo CD)
-* Horizontal Pod Autoscaler
-* PodDisruptionBudgets
-* Standard Kubernetes controllers
-
----
-
-## 13. Versioning Policy
-
-* Annotation keys under `image-updater.eznix86.github.io` constitute the public API
-* Breaking changes MUST be versioned via documentation and releases
-* Kubernetes standard annotations MUST remain unchanged
-
----
-
-## 14. Summary
-
-Kubernetes Image Updater provides:
-
-* Watchtower-style behavior
-* Kubernetes-native semantics
-* Minimal surface area
-* Clear ownership boundaries
-* Predictable, safe rollouts
-
-**Digest change → Pod template patch → Kubernetes rolls**
-
-Nothing more. Nothing less.
+Digest changes turn into Kubernetes-native rollout restarts for annotated workloads. That’s the entire contract: **digest change → workload annotation update → Kubernetes performs the rollout.**
