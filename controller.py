@@ -1,6 +1,7 @@
 import datetime
+import datetime
 import os
-from typing import Tuple
+from typing import Dict, Optional, Tuple
 
 import kopf
 import kubernetes
@@ -43,12 +44,57 @@ def parse_image(image: str) -> Tuple[str, str, str]:
     return registry, repo, tag
 
 
-def get_digest(image: str) -> str:
-    registry, repo, tag = parse_image(image)
+def _parse_www_authenticate(header: Optional[str]) -> Dict[str, str]:
+    if not header:
+        return {}
+    scheme, _, params = header.partition(" ")
+    if scheme.lower() != "bearer":
+        return {}
+    parsed: Dict[str, str] = {}
+    for part in params.split(","):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        parsed[key.strip()] = value.strip().strip('"')
+    return parsed
+
+
+def _request_bearer_token(header: Optional[str], repo: str) -> Optional[str]:
+    params = _parse_www_authenticate(header)
+    realm = params.get("realm")
+    if not realm:
+        return None
+
+    query = {}
+    if service := params.get("service"):
+        query["service"] = service
+    scope = params.get("scope") or f"repository:{repo}:pull"
+    query["scope"] = scope
+
+    response = requests.get(realm, params=query, timeout=10)
+    response.raise_for_status()
+    payload = response.json()
+    return payload.get("token") or payload.get("access_token")
+
+
+def _fetch_manifest(registry: str, repo: str, tag: str) -> requests.Response:
+    session = requests.Session()
+    headers = {"Accept": OCI_ACCEPT}
     url = f"https://{registry}/v2/{repo}/manifests/{tag}"
 
-    response = requests.get(url, headers={"Accept": OCI_ACCEPT}, timeout=10)
+    response = session.get(url, headers=headers, timeout=10)
+    if response.status_code == 401:
+        token = _request_bearer_token(response.headers.get("WWW-Authenticate"), repo)
+        if token:
+            headers = {**headers, "Authorization": f"Bearer {token}"}
+            response = session.get(url, headers=headers, timeout=10)
     response.raise_for_status()
+    return response
+
+
+def get_digest(image: str) -> str:
+    registry, repo, tag = parse_image(image)
+    response = _fetch_manifest(registry, repo, tag)
 
     digest = response.headers.get("Docker-Content-Digest")
     if not digest:
