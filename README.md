@@ -4,9 +4,26 @@ A lightweight Kubernetes helper that re-rolls annotated workloads whenever the d
 
 ## Use cases
 
-- Homelabs or personal clusters that track `:latest` tags and want automatic rollouts when registries publish new digests.
-- Small teams pinning images manually but needing a digest watcher without wiring a full GitOps stack.
-- **Warning:** This project is *not* hardened for production. There is no HA story, no admission control, and no guarantees around RBAC or audit requirements—run it only in environments where those gaps are acceptable.
+- Homelabs
+- Where tracking `:latest` tags is not a problem and want automatic rollouts when registries publish new digests.
+
+
+### Supported
+
+The controller interacts with native controllers that expose a pod template:
+
+| Supported        | Not Supported            |
+| ---------------- | ------------------------ |
+| Deployments      | Standalone Pods          |
+| StatefulSets     | Jobs / CronJobs          |
+| DaemonSets       | Static Pods              |
+| ReplicaSets\*    |                          |
+
+\*ReplicaSets inherit support through Deployments; they are not watched directly.
+
+### Requirements
+
+The operator only triggers rollouts; Kubernetes decides whether a node repulls the image. Configure your workloads with `imagePullPolicy: Always` (or use digest-pinned tags) so restarts actually fetch new layers. If that isn’t practical, enable the optional automation described below.
 
 ## Development
 
@@ -16,7 +33,8 @@ Dependencies are managed with [uv](https://github.com/astral-sh/uv) for repeatab
 uv venv
 source .venv/bin/activate
 uv sync
-uv run kopf run controller.py
+# will use your current kubeconfig
+uv run kopf --all-namespaces run controller.py
 ```
 
 ## Helm Chart
@@ -30,6 +48,17 @@ helm repo update
 helm install image-updater eznix86/kubernetes-image-updater \
   --namespace image-updater \
   --create-namespace
+```
+
+### Optional pull-policy override
+
+Set `.Values.automaticallySetImagePullPolicy=true` (or the `AUTOMATICALLY_SET_IMAGE_PULL_POLICY_TO_ALWAYS` env var in custom deployments) if you want the operator to temporarily patch annotated workloads to `imagePullPolicy: Always` before each restart:
+
+```bash
+helm install image-updater eznix86/kubernetes-image-updater \
+  --namespace image-updater \
+  --create-namespace \
+  --set automaticallySetImagePullPolicy=true
 ```
 
 ### Required annotation

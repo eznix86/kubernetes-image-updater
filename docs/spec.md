@@ -1,9 +1,9 @@
 # Kubernetes Image Updater — Information Sheet
 
-**Project:** Kubernetes Image Updater  
-**Repository:** [https://github.com/eznix86/kubernetes-image-updater](https://github.com/eznix86/kubernetes-image-updater)  
-**Status:** Stable (v1)  
-**Purpose:** Restart Kubernetes workloads when the OCI digest behind their current tag changes  
+**Project:** Kubernetes Image Updater
+**Repository:** [https://github.com/eznix86/kubernetes-image-updater](https://github.com/eznix86/kubernetes-image-updater)
+**Status:** Stable (v1)
+**Purpose:** Restart Kubernetes workloads when the OCI digest behind their current tag changes
 **Intended Environments:** Homelabs, personal clusters, or any setup where `:latest` or manual tag pinning is acceptable
 
 ---
@@ -75,11 +75,20 @@ Failures when reaching the registry (timeouts, `401 Unauthorized`, etc.) are log
 
 - Registry errors are surfaced via warning logs and the loop continues on the next interval. There is no retry inside a single tick.
 - Workloads without containers or without an `image` value are ignored for that pass.
-- Only the annotation fields mentioned above are patched; no other metadata or spec fields are touched.
+- Only the annotation fields mentioned above are patched; no other metadata or spec fields are touched (unless the optional pull-policy override below is enabled).
 
 ---
 
-## 7. Access Requirements
+## 7. Optional Pull-Policy Override
+
+By default the operator expects annotated workloads to use `imagePullPolicy: Always` or digest-pinned images. When the environment variable `AUTOMATICALLY_SET_IMAGE_PULL_POLICY_TO_ALWAYS=true` is supplied (exposed in the Helm chart via `automaticallySetImagePullPolicy`), the controller temporarily patches the first container in each workload to `imagePullPolicy: Always` before triggering the restart. This ensures kubelets repull tags such as `:latest` even when the workload originally used `IfNotPresent`.
+
+- Only the first container is modified, matching the digest-tracking rule.
+- The patch happens as part of the same rollout mutation, so the workload ends up with the `Always` policy after the reconciliation. If you disable the feature later, you should revert the workload spec yourself.
+
+---
+
+## 8. Access Requirements
 
 To function, the controller needs:
 
@@ -90,7 +99,7 @@ Pods are never deleted directly, and scaling decisions remain with the native co
 
 ---
 
-## 8. Compatibility & Non-Goals
+## 9. Compatibility & Non-Goals
 
 The behavior intentionally mirrors `kubectl rollout restart`, making it compatible with:
 
@@ -105,7 +114,7 @@ Explicitly out of scope:
 
 ---
 
-## 9. Installation Notes
+## 10. Installation Notes
 
 The published Helm chart defaults to a dedicated namespace so it can be installed with a single command:
 
@@ -122,6 +131,6 @@ Values can override the namespace or image repository as needed, but the example
 
 ---
 
-## 10. Summary
+## 11. Summary
 
 Digest changes turn into Kubernetes-native rollout restarts for annotated workloads. That’s the entire contract: **digest change → workload annotation update → Kubernetes performs the rollout.**
