@@ -1,5 +1,4 @@
 import datetime
-import datetime
 import os
 from typing import Dict, Optional, Tuple
 
@@ -182,7 +181,7 @@ def statefulset_timer(**kwargs):
     "v1",
     "daemonsets",
     interval=CHECK_INTERVAL,
-    annotations={ENABLE_ANNOTATION: "true"},
+    annotations={ENABLE_ANNOTATION: "true"}
 )
 def daemonset_timer(**kwargs):
     reconcile("daemonset", **kwargs)

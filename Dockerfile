@@ -15,4 +15,4 @@ ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 COPY --from=builder /app/.venv ${VIRTUAL_ENV}
 COPY --from=builder /app/controller.py ./controller.py
 
-CMD ["kopf", "run", "/app/controller.py"]
+CMD ["kopf", "run", "--all-namespaces", "/app/controller.py"]
