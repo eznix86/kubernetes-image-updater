@@ -1,6 +1,6 @@
 import datetime
 import os
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import kopf
 import kubernetes
@@ -13,7 +13,30 @@ RESTART_ANNOTATION = "kubectl.kubernetes.io/restartedAt"
 
 _DEFAULT_INTERVAL = 300
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", str(_DEFAULT_INTERVAL)))
-OCI_ACCEPT = "application/vnd.docker.distribution.manifest.v2+json"
+OCI_ACCEPT = ", ".join(
+    [
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+    ]
+)
+FORCE_PULL_POLICY = (
+    os.getenv("AUTOMATICALLY_SET_IMAGE_PULL_POLICY_TO_ALWAYS", "false").lower()
+    == "true"
+)
+
+
+_DEFAULT_INTERVAL = 300
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", str(_DEFAULT_INTERVAL)))
+OCI_ACCEPT = ", ".join(
+    [
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+    ]
+)
 
 
 def _build_apps_client() -> kubernetes.client.AppsV1Api:
@@ -102,7 +125,14 @@ def get_digest(image: str) -> str:
     return digest
 
 
-def rollout_restart(kind: str, name: str, namespace: str, digest: str) -> None:
+def rollout_restart(
+    kind: str,
+    name: str,
+    namespace: str,
+    digest: str,
+    container_name: Optional[str] = None,
+    force_pull_policy: bool = False,
+) -> None:
     now = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     body = {
         "metadata": {
@@ -121,6 +151,12 @@ def rollout_restart(kind: str, name: str, namespace: str, digest: str) -> None:
         },
     }
 
+    if force_pull_policy and container_name:
+        template_spec = body["spec"]["template"].setdefault("spec", {})
+        template_spec["containers"] = [
+            {"name": container_name, "imagePullPolicy": "Always"}
+        ]
+
     if kind == "deployment":
         apps.patch_namespaced_deployment(name, namespace, body)
     elif kind == "statefulset":
@@ -136,7 +172,8 @@ def reconcile(kind: str, spec, meta, name: str, namespace: str, logger, **_):
     if not containers:
         return
 
-    image = containers[0].get("image")
+    first_container = containers[0]
+    image = first_container.get("image")
     if not image:
         return
 
@@ -151,42 +188,50 @@ def reconcile(kind: str, spec, meta, name: str, namespace: str, logger, **_):
 
     if digest != last:
         logger.info(f"{kind}/{namespace}/{name}: image changed → restart")
-        rollout_restart(kind, name, namespace, digest)
+        rollout_restart(
+            kind,
+            name,
+            namespace,
+            digest,
+            container_name=first_container.get("name"),
+            force_pull_policy=FORCE_PULL_POLICY
+            and first_container.get("imagePullPolicy") != "Always",
+        )
 
 
-@kopf.timer(
+@kopf.timer(  # type: ignore[misc]
     "apps",
     "v1",
     "deployments",
     interval=CHECK_INTERVAL,
     annotations={ENABLE_ANNOTATION: "true"},
 )
-def deployment_timer(**kwargs):
+def deployment_timer(**kwargs: Any) -> None:
     reconcile("deployment", **kwargs)
 
 
-@kopf.timer(
+@kopf.timer(  # type: ignore[misc]
     "apps",
     "v1",
     "statefulsets",
     interval=CHECK_INTERVAL,
     annotations={ENABLE_ANNOTATION: "true"},
 )
-def statefulset_timer(**kwargs):
+def statefulset_timer(**kwargs: Any) -> None:
     reconcile("statefulset", **kwargs)
 
 
-@kopf.timer(
+@kopf.timer(  # type: ignore[misc]
     "apps",
     "v1",
     "daemonsets",
     interval=CHECK_INTERVAL,
-    annotations={ENABLE_ANNOTATION: "true"}
+    annotations={ENABLE_ANNOTATION: "true"},
 )
-def daemonset_timer(**kwargs):
+def daemonset_timer(**kwargs: Any) -> None:
     reconcile("daemonset", **kwargs)
 
 
-@kopf.on.startup()
-def startup(logger, **_):
+@kopf.on.startup()  # type: ignore[misc]
+def startup(logger: Any, **_: Any) -> None:
     logger.info("kubernetes-image-updater started")
