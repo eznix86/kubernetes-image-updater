@@ -23,4 +23,6 @@ spec:
         env:
         - name: CHECK_INTERVAL
           value: "{{ .Values.intervalSeconds }}"
+        - name: AUTOMATICALLY_SET_IMAGE_PULL_POLICY_TO_ALWAYS
+          value: '{{ ternary "true" "false" .Values.automaticallySetImagePullPolicy }}'
         resources: {{ toJson .Values.resources }}

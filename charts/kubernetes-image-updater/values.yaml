@@ -1,8 +1,10 @@
 image:
   repository: ghcr.io/eznix86/kubernetes-image-updater
   tag: latest
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 intervalSeconds: 300
+
+automaticallySetImagePullPolicy: true
 
 resources: {}
