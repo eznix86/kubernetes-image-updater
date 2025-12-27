@@ -3,6 +3,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Release.Name }}
+  annotations:
+    image-updater.eznix86.github.io/enabled: "true"
 spec:
   replicas: 1
   selector:

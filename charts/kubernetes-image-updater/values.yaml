@@ -1,5 +1,5 @@
 image:
-  repository: eznix86/kubernetes-image-updater
+  repository: ghcr.io/eznix86/kubernetes-image-updater
   tag: latest
   pullPolicy: IfNotPresent
 
