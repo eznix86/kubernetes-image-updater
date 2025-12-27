@@ -27,7 +27,9 @@ Install the published chart directly from GitHub:
 helm repo add eznix86 https://eznix86.github.io/kubernetes-image-updater
 helm repo update
 
-helm install image-updater eznix86/kubernetes-image-updater
+helm install image-updater eznix86/kubernetes-image-updater \
+  --namespace image-updater \
+  --create-namespace
 ```
 
 ### Required annotation

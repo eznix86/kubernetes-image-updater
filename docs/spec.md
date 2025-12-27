@@ -105,6 +105,23 @@ Explicitly out of scope:
 
 ---
 
-## 9. Summary
+## 9. Installation Notes
+
+The published Helm chart defaults to a dedicated namespace so it can be installed with a single command:
+
+```bash
+helm repo add eznix86 https://eznix86.github.io/kubernetes-image-updater
+helm repo update
+
+helm install image-updater eznix86/kubernetes-image-updater \
+  --namespace image-updater \
+  --create-namespace
+```
+
+Values can override the namespace or image repository as needed, but the example above is ready to copy/paste.
+
+---
+
+## 10. Summary
 
 Digest changes turn into Kubernetes-native rollout restarts for annotated workloads. That’s the entire contract: **digest change → workload annotation update → Kubernetes performs the rollout.**
