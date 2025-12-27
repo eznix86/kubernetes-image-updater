@@ -34,8 +34,6 @@ helm install image-updater eznix86/kubernetes-image-updater \
 
 ### Required annotation
 
-Opt specific workloads in with the GitHub-hosted annotation namespace:
-
 ```yaml
 metadata:
   annotations:
