@@ -2,6 +2,16 @@ apiVersion: v1
 entries:
   kubernetes-image-updater:
   - apiVersion: v2
+    appVersion: 0.2.1
+    created: "2025-12-27T14:52:32.317711192Z"
+    description: Simple image updater
+    digest: ebbebcff8fec144e39699f9767815e7f860ed508d1e0d11dd6188f79c9fee77f
+    name: kubernetes-image-updater
+    type: application
+    urls:
+    - https://github.com/eznix86/kubernetes-image-updater/releases/download/kubernetes-image-updater-0.2.1/kubernetes-image-updater-0.2.1.tgz
+    version: 0.2.1
+  - apiVersion: v2
     appVersion: 0.2.0
     created: "2025-12-27T14:39:07.827683245Z"
     description: Simple image updater
@@ -21,4 +31,4 @@ entries:
     urls:
     - https://github.com/eznix86/kubernetes-image-updater/releases/download/kubernetes-image-updater-0.1.1/kubernetes-image-updater-0.1.1.tgz
     version: 0.1.1
-generated: "2025-12-27T14:39:07.827689236Z"
+generated: "2025-12-27T14:52:32.317722232Z"
