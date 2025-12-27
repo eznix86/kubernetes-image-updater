@@ -6,6 +6,11 @@ on:
       - main
     paths:
       - 'charts/**'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why are you manually releasing charts?"
+        required: false
 
 permissions:
   contents: write
