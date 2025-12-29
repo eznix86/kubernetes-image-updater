@@ -6,6 +6,7 @@ A lightweight Kubernetes helper that re-rolls annotated workloads whenever the d
 
 - Homelabs
 - Where tracking `:latest` tags is not a problem and want automatic rollouts when registries publish new digests.
+- You do not want gitops, you just want to have your pinned tags (`:latest`, `:stable`) to be always up to date.
 
 
 ### Supported
