@@ -1,6 +1,8 @@
 ## 1. Overview
 
-Kubernetes Image Updater watches annotated workloads and periodically compares the OCI digest of their **current** container image to the digest that last triggered a rollout. If the registry answers with a new digest, the operator patches the workload’s pod template with `kubectl.kubernetes.io/restartedAt`, causing Kubernetes to perform a standard rolling restart. No tags are rewritten, no Git state is touched, and no pods are deleted manually.
+Kubernetes Image Updater watches annotated workloads and periodically compares the OCI digest of their **current** container images to the digests that last triggered a rollout. If the registry answers with a new digest for any tracked container, the operator patches the workload’s pod template with `kubectl.kubernetes.io/restartedAt`, causing Kubernetes to perform a standard rolling restart. No tags are rewritten, no Git state is touched, and no pods are deleted manually.
+
+TLDR: **any tracked container digest change → workload annotation update → Kubernetes performs the rollout.**
 
 Key characteristics:
 
@@ -52,8 +54,8 @@ All operator-managed annotations live under `image-updater.eznix86.github.io/*` 
 3. **Digest resolution** – For each tracked container, the controller parses the image reference, infers a registry when needed (Docker Hub with the `library/` prefix for bare names), and performs an HTTP `GET /v2/<repo>/manifests/<tag>` with `Accept: application/vnd.docker.distribution.manifest.v2+json`. The digest is taken from the `Docker-Content-Digest` header.
 4. **Comparison** – Each digest is compared to the corresponding entry in `image-updater.eznix86.github.io/last-digest` (format `"<name>:<digest>,<name>:<digest>"`). Legacy single-digest format is automatically migrated to the new format.
 5. **Restart trigger** – When ANY tracked container's digest differs or is missing from the annotation, the controller:
-    - Writes all current digests (for all tracked containers) to `image-updater.eznix86.github.io/last-digest`; and
-    - Patches `spec.template.metadata.annotations` with a fresh ISO-8601 timestamp at `kubectl.kubernetes.io/restartedAt`.
+   - Writes all current digests (for all tracked containers) to `image-updater.eznix86.github.io/last-digest`; and
+   - Patches `spec.template.metadata.annotations` with a fresh ISO-8601 timestamp at `kubectl.kubernetes.io/restartedAt`.
 6. **Rollout** – Kubernetes controllers pick up the template change and roll out according to their own strategy. The operator does nothing else until the next timer tick.
 
 Failures when reaching the registry (timeouts, `401 Unauthorized`, etc.) are logged and the reconciliation exits without mutating the workload. State remains unchanged until the next timer attempt.
@@ -78,9 +80,9 @@ Failures when reaching the registry (timeouts, `401 Unauthorized`, etc.) are log
 
 ## 7. Optional Pull-Policy Override
 
-By default the operator expects annotated workloads to use `imagePullPolicy: Always` or digest-pinned images. For convenience, the Helm chart ships with `automaticallySetImagePullPolicy=true`, which sets the environment variable `AUTOMATICALLY_SET_IMAGE_PULL_POLICY_TO_ALWAYS=true`. When enabled, the controller patches every declared container (in `spec.containers`) to `imagePullPolicy: Always` before triggering the restart. This ensures kubelets repull tags such as `:latest` even when the workload originally used `IfNotPresent`.
+By default the operator expects annotated workloads to use `imagePullPolicy: Always` or digest-pinned images. For convenience, the Helm chart ships with `automaticallySetImagePullPolicy=true`, which sets the environment variable `AUTOMATICALLY_SET_IMAGE_PULL_POLICY_TO_ALWAYS=true`. When enabled, the controller patches every declared container to `imagePullPolicy: Always` before triggering the restart. This ensures kubelets repull tags such as `:latest` even when the workload originally used `IfNotPresent`.
 
-- All containers in `spec.containers` are modified in one patch (init containers are not modified).
+- All tracked containers in the pod template are modified in one patch.
 - The patch happens as part of the same rollout mutation, so the workload ends up with the `Always` policy after the reconciliation. If you disable the feature later, you should revert the workload spec yourself.
 
 ---
@@ -103,63 +105,8 @@ The behavior intentionally mirrors `kubectl rollout restart`, making it compatib
 - GitOps tools such as Flux or Argo CD (they see standard template annotations).
 - Autoscalers, PodDisruptionBudgets, and other built-in controllers.
 
-Explicitly out of scope:
+Explicitly **out of scope**:
 
-- Selecting “latest” images on behalf of the user or performing semantic version comparisons.
+- Selecting "latest" images on behalf of the user or performing semantic version comparisons.
 - Managing Git repositories, manifests, or CI/CD pipelines.
 - Acting as a policy or verification layer — it simply observes digests and restarts.
-
----
-
-## 10. Development & Testing
-
-### Local Development
-
-Dependencies are managed with [uv](https://github.com/astral-sh/uv) for repeatable local testing:
-
-```bash
-uv sync                    # Install dependencies
-uv run kopf --all-namespaces run controller.py  # Run locally with current kubeconfig
-```
-
-### Testing
-
-The project includes comprehensive pytest tests covering core functionality:
-
-```bash
-uv sync --group dev        # Install test dependencies (pytest, pytest-mock, ruff)
-uv run ruff check .        # Run code linting
-uv run pytest              # Run all tests
-uv run pytest tests/test_domain.py -v  # Run specific test file
-```
-
-Test coverage includes:
-- Domain models (ImageReference, DigestMap, ContainerInfo)
-- Container selection logic with various annotation combinations
-- Image registry authentication and parsing
-- Reconciliation logic and error handling
-
-All tests are designed to run quickly without external dependencies.
-
----
-
-## 11. Installation Notes
-
-The published Helm chart defaults to a dedicated namespace so it can be installed with a single command:
-
-```bash
-helm repo add eznix86 https://eznix86.github.io/kubernetes-image-updater
-helm repo update
-
-helm install image-updater eznix86/kubernetes-image-updater \
-  --namespace image-updater \
-  --create-namespace
-```
-
-Values can override the namespace or image repository as needed, but the example above is ready to copy/paste.
-
----
-
-## 12. Summary
-
-Digest changes for any tracked container turn into Kubernetes-native rollout restarts for annotated workloads. That’s the entire contract: **any tracked container digest change → workload annotation update → Kubernetes performs the rollout.**
