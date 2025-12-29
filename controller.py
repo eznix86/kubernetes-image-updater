@@ -15,6 +15,7 @@ import kubernetes
 import requests
 from kubernetes.config import ConfigException
 
+
 class Config:
     """Application configuration."""
 
@@ -171,6 +172,7 @@ class WorkloadKind(str, Enum):
     STATEFULSET = "statefulset"
     DAEMONSET = "daemonset"
 
+
 class ImageUpdaterError(Exception):
     """Base exception for image updater errors."""
 
@@ -317,6 +319,26 @@ class WorkloadManager:
 
     def __init__(self, apps_client: kubernetes.client.AppsV1Api):
         self.apps = apps_client
+
+    def update_digest_only(
+        self, kind: WorkloadKind, name: str, namespace: str, digest_map: DigestMap
+    ) -> None:
+        """Update digest annotation without triggering restart."""
+        patch = {
+            "metadata": {
+                "annotations": {
+                    Config.LAST_DIGEST_ANNOTATION: digest_map.to_annotation(),
+                }
+            }
+        }
+
+        # Apply patch based on workload type
+        if kind == WorkloadKind.DEPLOYMENT:
+            self.apps.patch_namespaced_deployment(name, namespace, patch)
+        elif kind == WorkloadKind.STATEFULSET:
+            self.apps.patch_namespaced_stateful_set(name, namespace, patch)
+        elif kind == WorkloadKind.DAEMONSET:
+            self.apps.patch_namespaced_daemon_set(name, namespace, patch)
 
     def restart(
         self,
@@ -551,6 +573,8 @@ def daemonset_timer(spec, meta, name, namespace, logger, **_):
 
 
 @kopf.on.startup()
-def startup(logger, **_):
-    """Log startup message."""
+def startup(settings: kopf.OperatorSettings, logger, **_):
+    """Configure operator settings and log startup message."""
+    settings.persistence.finalizer = "image-updater.eznix86.github.io/finalizer"
+
     logger.info("kubernetes-image-updater started")

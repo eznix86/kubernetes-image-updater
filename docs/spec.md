@@ -41,7 +41,7 @@ The controller interacts with native controllers that expose a pod template:
 | `image-updater.eznix86.github.io/last-digest`       | Operator    | Stores digests for all tracked containers in format `"<name>:<digest>,<name>:<digest>"`. Used for idempotency. Entries are alphabetically sorted. Automatically migrates from legacy single-digest format. |
 | `kubectl.kubernetes.io/restartedAt`                 | Operator    | Standard Kubernetes annotation used to trigger a rollout restart by mutating `spec.template.metadata.annotations`. |
 
-All operator-managed annotations live under `image-updater.eznix86.github.io/*` and should be treated as internal state.
+All operator-managed annotations live under `image-updater.eznix86.github.io/*` and should be treated as internal state. The operator uses a custom finalizer name `image-updater.eznix86.github.io/finalizer`.
 
 ---
 

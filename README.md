@@ -105,6 +105,7 @@ annotations:
 | `image-updater.eznix86.github.io/ignore-containers` | Optional | Ignore these containers from tracking | `"container1,container2"` | None |
 | `image-updater.eznix86.github.io/track-init-containers` | Optional | Include init containers in tracking | `"true"` or `"false"` | `"false"` |
 | `image-updater.eznix86.github.io/last-digest` | Optional | Stores container digest map (managed by operator) | Auto-generated | None |
+| `image-updater.eznix86.github.io/finalizer` | Auto | Custom finalizer for resource lifecycle | Auto-managed | None |
 
 **Notes:**
 - `track-containers` takes precedence over `ignore-containers` if both are specified
