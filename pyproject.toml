@@ -9,6 +9,13 @@ dependencies = [
     "requests>=2.31.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-mock>=3.10.0",
+    "ruff>=0.6.0",
+]
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
